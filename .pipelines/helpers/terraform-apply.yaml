@@ -1,0 +1,94 @@
+---
+parameters:
+  - name: terraform_action
+    default: 'apply'
+
+  - name: serviceConnection
+
+  - name: root_module_folder_relative_path
+    default: '.'
+
+  - name: targetSubscriptionId
+    type: string
+    default: ''
+
+steps:
+  - task: AzureCLI@2
+    displayName: Terraform Apply for ${{ coalesce(parameters.terraform_action, 'Apply') }}
+
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: pscore
+      scriptLocation: inlineScript
+      addSpnToEnvironment: true
+
+      inlineScript: |
+
+        # ---------------------------------------------------------
+        # Authentication information comes from the Azure DevOps
+        # Service Connection.
+        # ---------------------------------------------------------
+
+        az account show 2>$null |
+          ConvertFrom-Json |
+          Set-Variable account
+
+        $clientId  = $account.user.name
+        $oidcToken = $env:idToken
+        $tenantId  = $account.tenantId
+
+        # ---------------------------------------------------------
+        # Choose the subscription Terraform will actually manage.
+        # ---------------------------------------------------------
+
+        if ([string]::IsNullOrWhiteSpace($env:TARGET_SUBSCRIPTION_ID)) {
+            $subscriptionId = $account.id
+        }
+        else {
+            $subscriptionId = $env:TARGET_SUBSCRIPTION_ID
+        }
+
+        Write-Host "Terraform authentication client ID : $clientId"
+        Write-Host "Terraform tenant ID                : $tenantId"
+        Write-Host "Terraform target subscription      : $subscriptionId"
+
+        # ---------------------------------------------------------
+        # Terraform Azure authentication
+        # ---------------------------------------------------------
+
+        $env:ARM_TENANT_ID       = $tenantId
+        $env:ARM_SUBSCRIPTION_ID = $subscriptionId
+        $env:ARM_OIDC_TOKEN      = $oidcToken
+        $env:ARM_USE_OIDC        = "true"
+        $env:ARM_CLIENT_ID       = $clientId
+        $env:ARM_USE_AZUREAD     = "true"
+
+        $env:TF_VAR_subscription_id = $subscriptionId
+
+        # Retain the ALZ setting.
+        $env:AZAPI_RETRY_GET_AFTER_PUT_MAX_TIME = "60m"
+
+        # ---------------------------------------------------------
+        # Terraform Apply
+        # ---------------------------------------------------------
+
+        $command = "terraform"
+
+        $arguments = @()
+
+        $arguments += "-chdir=${{ parameters.root_module_folder_relative_path }}"
+        $arguments += "apply"
+        $arguments += "-auto-approve"
+        $arguments += "tfplan"
+
+        Write-Host "Running: $command $arguments"
+
+        & $command $arguments
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "Terraform apply failed with exit code $LASTEXITCODE"
+        }
+
+    env:
+      TERRAFORM_ACTION: ${{ coalesce(parameters.terraform_action, 'apply') }}
+      TARGET_SUBSCRIPTION_ID: ${{ parameters.targetSubscriptionId }}

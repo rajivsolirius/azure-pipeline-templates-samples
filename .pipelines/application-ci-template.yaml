@@ -1,0 +1,142 @@
+---
+parameters:
+
+  - name: terraform_cli_version
+    type: string
+    default: latest
+
+  - name: root_module_folder_relative_path
+    type: string
+    default: '.'
+
+  - name: target_subscription_id
+    type: string
+
+  - name: backend_resource_group_name
+    type: string
+
+  - name: backend_storage_account_name
+    type: string
+
+  - name: backend_container_name
+    type: string
+    default: tfstate
+
+  - name: backend_key
+    type: string
+
+  - name: plan_service_connection
+    type: string
+
+
+stages:
+
+  - stage: validate
+    displayName: Validate Terraform
+
+    jobs:
+
+      # ====================================================
+      # FORMAT + VALIDATE
+      # ====================================================
+
+      - job: validate
+        displayName: Validate Terraform
+
+        pool:
+          name: acmealz-dev
+
+        steps:
+
+          - checkout: self
+
+          - template: helpers/terraform-installer.yaml
+            parameters:
+              terraformVersion: ${{ parameters.terraform_cli_version }}
+
+          - pwsh: |
+              terraform `
+                -chdir="${{ parameters.root_module_folder_relative_path }}" `
+                fmt `
+                -check
+            displayName: Terraform Format Check
+
+          - pwsh: |
+              terraform `
+                -chdir="${{ parameters.root_module_folder_relative_path }}" `
+                init `
+                -backend=false
+            displayName: Terraform Init - Backend Disabled
+
+          - pwsh: |
+              terraform `
+                -chdir="${{ parameters.root_module_folder_relative_path }}" `
+                validate
+            displayName: Terraform Validate
+
+
+      # ====================================================
+      # PLAN
+      # ====================================================
+
+      - deployment: plan
+        dependsOn: validate
+        displayName: Terraform Plan
+
+        pool:
+          name: acmealz-dev
+
+        timeoutInMinutes: 0
+
+        strategy:
+          runOnce:
+            deploy:
+
+              steps:
+
+                - checkout: self
+                  displayName: Checkout Terraform Repository
+
+                - template: helpers/terraform-installer.yaml
+                  parameters:
+                    terraformVersion: ${{ parameters.terraform_cli_version }}
+
+                - template: helpers/terraform-init.yaml
+                  parameters:
+
+                    serviceConnection:
+                      ${{ parameters.plan_service_connection }}
+
+                    backendAzureResourceGroupName:
+                      ${{ parameters.backend_resource_group_name }}
+
+                    backendAzureStorageAccountName:
+                      ${{ parameters.backend_storage_account_name }}
+
+                    backendAzureStorageAccountContainerName:
+                      ${{ parameters.backend_container_name }}
+
+                    backendAzureStorageAccountContainerKeyName:
+                      ${{ parameters.backend_key }}
+
+                    root_module_folder_relative_path:
+                      ${{ parameters.root_module_folder_relative_path }}
+
+                - template: helpers/terraform-plan.yaml
+                  parameters:
+
+                    serviceConnection:
+                      ${{ parameters.plan_service_connection }}
+
+                    root_module_folder_relative_path:
+                      ${{ parameters.root_module_folder_relative_path }}
+
+                    targetSubscriptionId:
+                      ${{ parameters.target_subscription_id }}
+
+                - pwsh: |
+                    terraform `
+                      -chdir="${{ parameters.root_module_folder_relative_path }}" `
+                      show `
+                      tfplan
+                  displayName: Show Terraform Plan

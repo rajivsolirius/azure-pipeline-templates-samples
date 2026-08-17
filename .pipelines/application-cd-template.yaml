@@ -1,0 +1,231 @@
+---
+parameters:
+
+  - name: terraform_action
+    type: string
+    default: apply
+
+  - name: terraform_cli_version
+    type: string
+    default: latest
+
+  - name: root_module_folder_relative_path
+    type: string
+    default: '.'
+
+  - name: target_subscription_id
+    type: string
+
+  - name: backend_resource_group_name
+    type: string
+
+  - name: backend_storage_account_name
+    type: string
+
+  - name: backend_container_name
+    type: string
+    default: tfstate
+
+  - name: backend_key
+    type: string
+
+  - name: plan_service_connection
+    type: string
+
+  - name: apply_service_connection
+    type: string
+
+
+stages:
+
+  # ========================================================
+  # PLAN
+  # ========================================================
+
+  - stage: plan
+    displayName: Plan
+
+    jobs:
+
+      - deployment: plan
+        displayName: Terraform Plan
+
+        pool:
+          name: acmealz-dev
+
+        timeoutInMinutes: 0
+
+        strategy:
+          runOnce:
+            deploy:
+
+              steps:
+
+                - checkout: self
+
+                - template: helpers/terraform-installer.yaml
+                  parameters:
+                    terraformVersion: ${{ parameters.terraform_cli_version }}
+
+                - template: helpers/terraform-init.yaml
+                  parameters:
+
+                    serviceConnection:
+                      ${{ parameters.plan_service_connection }}
+
+                    backendAzureResourceGroupName:
+                      ${{ parameters.backend_resource_group_name }}
+
+                    backendAzureStorageAccountName:
+                      ${{ parameters.backend_storage_account_name }}
+
+                    backendAzureStorageAccountContainerName:
+                      ${{ parameters.backend_container_name }}
+
+                    backendAzureStorageAccountContainerKeyName:
+                      ${{ parameters.backend_key }}
+
+                    root_module_folder_relative_path:
+                      ${{ parameters.root_module_folder_relative_path }}
+
+                - template: helpers/terraform-plan.yaml
+                  parameters:
+
+                    terraform_action:
+                      ${{ parameters.terraform_action }}
+
+                    serviceConnection:
+                      ${{ parameters.plan_service_connection }}
+
+                    root_module_folder_relative_path:
+                      ${{ parameters.root_module_folder_relative_path }}
+
+                    targetSubscriptionId:
+                      ${{ parameters.target_subscription_id }}
+
+                - task: CopyFiles@2
+                  displayName: Create Terraform Artifact
+
+                  inputs:
+
+                    SourceFolder:
+                      '$(Build.SourcesDirectory)'
+
+                    Contents: |
+                      **/*
+                      !.terraform/**/*
+                      !**/.terraform/**/*
+                      !.git/**/*
+                      !**/.git/**/*
+
+                    TargetFolder:
+                      '$(Build.ArtifactsStagingDirectory)'
+
+                    CleanTargetFolder: true
+                    OverWrite: true
+
+                - task: PublishPipelineArtifact@1
+                  displayName: Publish Terraform Artifact
+
+                  inputs:
+
+                    targetPath:
+                      '$(Build.ArtifactsStagingDirectory)'
+
+                    artifact:
+                      terraform
+
+                    publishLocation:
+                      pipeline
+
+                - pwsh: |
+                    terraform `
+                      -chdir="${{ parameters.root_module_folder_relative_path }}" `
+                      show `
+                      tfplan
+                  displayName: Show Terraform Plan
+
+
+  # ========================================================
+  # APPLY
+  # ========================================================
+
+  - stage: apply
+    displayName: Apply
+
+    dependsOn:
+      plan
+
+    jobs:
+
+      - deployment: apply
+        displayName: Terraform Apply
+
+        pool:
+          name: acmealz-dev
+
+        timeoutInMinutes: 0
+
+        strategy:
+          runOnce:
+            deploy:
+
+              steps:
+
+                - download: none
+
+                - task: DownloadPipelineArtifact@2
+                  displayName: Download Terraform Artifact
+
+                  inputs:
+
+                    buildType:
+                      current
+
+                    artifactName:
+                      terraform
+
+                    targetPath:
+                      '$(Build.SourcesDirectory)'
+
+                - template: helpers/terraform-installer.yaml
+                  parameters:
+
+                    terraformVersion:
+                      ${{ parameters.terraform_cli_version }}
+
+                - template: helpers/terraform-init.yaml
+                  parameters:
+
+                    serviceConnection:
+                      ${{ parameters.apply_service_connection }}
+
+                    backendAzureResourceGroupName:
+                      ${{ parameters.backend_resource_group_name }}
+
+                    backendAzureStorageAccountName:
+                      ${{ parameters.backend_storage_account_name }}
+
+                    backendAzureStorageAccountContainerName:
+                      ${{ parameters.backend_container_name }}
+
+                    backendAzureStorageAccountContainerKeyName:
+                      ${{ parameters.backend_key }}
+
+                    root_module_folder_relative_path:
+                      ${{ parameters.root_module_folder_relative_path }}
+
+                - template: helpers/terraform-apply.yaml
+                  parameters:
+
+                    terraform_action:
+                      ${{ parameters.terraform_action }}
+
+                    serviceConnection:
+                      ${{ parameters.apply_service_connection }}
+
+                    root_module_folder_relative_path:
+                      ${{ parameters.root_module_folder_relative_path }}
+
+                    targetSubscriptionId:
+                      ${{ parameters.target_subscription_id }}
