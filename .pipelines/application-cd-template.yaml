@@ -88,6 +88,30 @@ stages:
                     root_module_folder_relative_path:
                       ${{ parameters.root_module_folder_relative_path }}
 
+                - pwsh: |
+                    Write-Host "=========================================="
+                    Write-Host "Terraform State List"
+                    Write-Host "=========================================="
+
+                    terraform `
+                      -chdir="${{ parameters.root_module_folder_relative_path }}" `
+                      state `
+                      list
+
+                    Write-Host ""
+                    Write-Host "=========================================="
+                    Write-Host "Storage Account State Check"
+                    Write-Host "=========================================="
+
+                    terraform `
+                      -chdir="${{ parameters.root_module_folder_relative_path }}" `
+                      state `
+                      show `
+                      azurerm_storage_account.acmedev_state
+
+                  displayName: TEMP - Inspect Terraform State
+                  continueOnError: true
+
                 - template: helpers/terraform-plan.yaml
                   parameters:
 
