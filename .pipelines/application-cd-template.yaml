@@ -88,28 +88,46 @@ stages:
                     root_module_folder_relative_path:
                       ${{ parameters.root_module_folder_relative_path }}
 
-                - pwsh: |
-                    Write-Host "=========================================="
-                    Write-Host "Terraform State List"
-                    Write-Host "=========================================="
-
-                    terraform `
-                      -chdir="${{ parameters.root_module_folder_relative_path }}" `
-                      state `
-                      list
-
-                    Write-Host ""
-                    Write-Host "=========================================="
-                    Write-Host "Storage Account State Check"
-                    Write-Host "=========================================="
-
-                    terraform `
-                      -chdir="${{ parameters.root_module_folder_relative_path }}" `
-                      state `
-                      show `
-                      azurerm_storage_account.acmedev_state
-
+                - task: AzureCLI@2
                   displayName: TEMP - Inspect Terraform State
+                  inputs:
+                    azureSubscription: ${{ parameters.plan_service_connection }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    addSpnToEnvironment: true
+
+                    inlineScript: |
+
+                      # Get the Azure context supplied by the Service Connection
+                      az account show 2>$null |
+                        ConvertFrom-Json |
+                        Set-Variable account
+
+                      $clientId       = $account.user.name
+                      $tenantId       = $account.tenantId
+                      $subscriptionId = $account.id
+                      $oidcToken      = $env:idToken
+
+                      # Configure Terraform/AzureRM backend authentication
+                      $env:ARM_TENANT_ID       = $tenantId
+                      $env:ARM_SUBSCRIPTION_ID = $subscriptionId
+                      $env:ARM_CLIENT_ID       = $clientId
+                      $env:ARM_OIDC_TOKEN      = $oidcToken
+                      $env:ARM_USE_OIDC        = "true"
+                      $env:ARM_USE_AZUREAD     = "true"
+
+                      Write-Host "=========================================="
+                      Write-Host "Terraform State List"
+                      Write-Host "=========================================="
+
+                      terraform -chdir="${{ parameters.root_module_folder_relative_path }}" state list
+
+                      Write-Host ""
+                      Write-Host "=========================================="
+                      Write-Host "Storage Account State Check"
+                      Write-Host "=========================================="
+
+                      terraform -chdir="${{ parameters.root_module_folder_relative_path }}" state show azurerm_storage_account.acmedev_state
                   continueOnError: true
 
                 - template: helpers/terraform-plan.yaml
