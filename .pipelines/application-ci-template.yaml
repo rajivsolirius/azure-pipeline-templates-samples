@@ -101,6 +101,19 @@ stages:
                   parameters:
                     terraformVersion: ${{ parameters.terraform_cli_version }}
 
+                - task: AzureCLI@2
+                  displayName: TEMP - Test Application Plan Service Connection
+                  inputs:
+                    azureSubscription: 'sc-app-lz-plan'
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    addSpnToEnvironment: true
+                    inlineScript: |
+                      Write-Host "Authenticated successfully"
+                      az account show `
+                        --query "{subscription:id, tenant:tenantId, identity:user.name}" `
+                        --output table
+
                 - template: helpers/terraform-init.yaml
                   parameters:
 
