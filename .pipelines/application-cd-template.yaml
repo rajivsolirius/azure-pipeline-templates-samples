@@ -130,6 +130,46 @@ stages:
                       terraform -chdir="${{ parameters.root_module_folder_relative_path }}" state show azurerm_storage_account.acmedev_state
                   continueOnError: true
 
+                - task: AzureCLI@2
+                  displayName: 'Test Key Vault Private DNS Resolution'
+                  inputs:
+                    azureSubscription: ${{ parameters.apply_service_connection }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      $ErrorActionPreference = "Stop"
+
+                      $keyVaultFqdn = "<YOUR-KEY-VAULT-NAME>.vault.azure.net"
+
+                      Write-Host "Testing DNS resolution for:"
+                      Write-Host $keyVaultFqdn
+
+                      nslookup $keyVaultFqdn
+
+                - task: AzureCLI@2
+                  displayName: 'Test Key Vault Private Endpoint Connectivity'
+                  inputs:
+                    azureSubscription: ${{ parameters.apply_service_connection }}
+                    scriptType: pscore
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      $ErrorActionPreference = "Stop"
+
+                      $keyVaultFqdn = "<YOUR-KEY-VAULT-NAME>.vault.azure.net"
+
+                      Write-Host "Testing TCP connectivity to:"
+                      Write-Host "$keyVaultFqdn`:443"
+
+                      $result = Test-NetConnection `
+                        -ComputerName $keyVaultFqdn `
+                        -Port 443
+
+                      $result
+
+                      if (-not $result.TcpTestSucceeded) {
+                        throw "TCP connectivity to Key Vault private endpoint failed."
+                      }
+
                 - template: helpers/terraform-plan.yaml
                   parameters:
 
