@@ -156,18 +156,24 @@ stages:
                       $ErrorActionPreference = "Stop"
 
                       $keyVaultFqdn = "<YOUR-KEY-VAULT-NAME>.vault.azure.net"
+                      $port = 443
 
-                      Write-Host "Testing TCP connectivity to:"
-                      Write-Host "$keyVaultFqdn`:443"
+                      Write-Host "Testing TCP connectivity to $keyVaultFqdn`:$port"
 
-                      $result = Test-NetConnection `
-                        -ComputerName $keyVaultFqdn `
-                        -Port 443
+                      $tcpClient = [System.Net.Sockets.TcpClient]::new()
 
-                      $result
+                      try {
+                          $tcpClient.Connect($keyVaultFqdn, $port)
 
-                      if (-not $result.TcpTestSucceeded) {
-                        throw "TCP connectivity to Key Vault private endpoint failed."
+                          if ($tcpClient.Connected) {
+                              Write-Host "SUCCESS: TCP connectivity works."
+                          }
+                          else {
+                              throw "TCP connectivity failed."
+                          }
+                      }
+                      finally {
+                          $tcpClient.Dispose()
                       }
 
                 - template: helpers/terraform-plan.yaml
